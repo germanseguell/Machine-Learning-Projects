@@ -1,6 +1,6 @@
 ---
 title: "MULTI-ARMED BANDIT"
-author: "Tamim Abo Saleh"
+author: "German Seguel Liberona"
 date: "14 NOV 2021"
 output:
   pdf_document:
