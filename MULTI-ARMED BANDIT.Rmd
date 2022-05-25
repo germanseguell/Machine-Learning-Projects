@@ -1,0 +1,344 @@
+---
+title: "MULTI-ARMED BANDIT"
+author: "Tamim Abo Saleh"
+date: "14 NOV 2021"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: 2
+  html_document:
+    theme: cosmo
+    toc: yes
+    toc_depth: 2
+  word_document:
+    toc: yes
+    toc_depth: 2
+---
+
+We will use the ‘contextual’ library to run three types of simulations:
+1. A synthetic simulation on context-free multi-armed bandits.
+2. A synthetic simulation on contextual multi-armed bandits.
+3. An offline simulation on contextual multi-armed bandits.
+
+
+
+## Setup
+
+Before we start answering the questions, we take care of a few important settings.
+
+```{r setup, message = FALSE, warning = FALSE}
+
+library("reshape2")
+library("lsa")
+library("caret")
+library("dplyr")
+library("coop")
+library("proxy")
+library("Metrics")
+library("latexpdf")
+library("tinytex")
+library("devtools")
+library("contextual")
+
+#install.packages("contextual")
+#install.packages("devtools")
+#devtools::install_github('Nth-iteration-labs/contextual')
+#install.packages("devtools")
+#devtools::install_deps(dependencies = TRUE)
+#devtools::build()
+#devtools::reload()
+
+```
+
+1. A synthetic simulation on context-free multi-armed bandits.
+
+We will look into the effectiveness of the 4 ads that ran for about a month on a social media platform and had Click Through Rates of: 13/430 = 0.030, 13/1213 = 0.011, 8/583 = 0.013, 17/1337 = 0.013.
+
+
+```{r contextFree, echo=TRUE}
+
+prob_per_arm <- c(0.30, 0.011, 0.013, 0.013)
+horizon <- 10000
+simulations <- 50
+
+
+bandit <- BasicBernoulliBandit$new(prob_per_arm)
+
+agents <- list(Agent$new(EpsilonGreedyPolicy$new(0.01), bandit, "eGreedy 0.01"),
+Agent$new(EpsilonGreedyPolicy$new(0.1), bandit, "eGreedy 0.1"),
+Agent$new(EpsilonGreedyPolicy$new(0.3), bandit, "eGreedy 0.3"),
+Agent$new(ThompsonSamplingPolicy$new(1.0, 1.0), bandit)
+)
+simulation <- Simulator$new(agents, horizon, simulations)
+history <- simulation$run()
+plot(history, type = "cumulative")
+plot(history, type = "cumulative", regret=F)
+```
+
+##Questions
+
+1. Can you improve this visualization in terms of readability? Describe some changes and implement them.
+The visualization was improved in terms of readability by changing the date column format from character to date. Now, instead of having every single record on the x-axis, we can see clear view of dates.
+
+2. What does the visualization tell you?
+Having a clear view on the timeline shows us, for example 
+For test A: from May 25 to May 28 there was a decrease in number of participants for desktop but increase on mobile.
+For test B: from May 25 to May 28 it was stable number of participants for desktop but increase on mobile.
+In desktop device both A and B we see very low number of purchases and registeraccount.
+But, it is slightly higher in mobile.
+
+```{r readability, echo=TRUE}
+
+plotdata <- melt(reshapeddata, id.vars=c("device","date","day","condition"))
+
+plotdata$date <- as.Date(plotdata$date)
+
+ggplot(plotdata, aes(x=date, y=value, group=variable, color=variable)) +
+geom_line() + facet_grid(device ~ condition) +
+theme(axis.text.x = element_text(angle = 90))
+
+```
+
+
+```{r DataPreparation, echo=TRUE}
+bandit <- read.table("contextualdata.csv", sep=",", header=T)
+head(bandit)
+
+
+```
+
+
+## Statistical Significance
+
+To look how the results change on a day-by-day basis, we consider the cumulative totals.
+
+We calculate the cumulative totals for number of visitors, number of purchases and number of registrations, we take the total per device type (desktop, mobile).
+
+```{r StatisticalSignificance, echo = TRUE}
+
+data$cN_A <-ave(data$N_A, data$device, FUN=cumsum)
+data$cN_B <-ave(data$N_B, data$device, FUN=cumsum)
+data$cpurchases_A <- ave(data$purchases_A, data$device, FUN=cumsum)
+data$cpurchases_B <- ave(data$purchases_B, data$device, FUN=cumsum)
+data$cregisteraccount_A <- ave(data$registeraccount_A, data$device, FUN=cumsum)
+data$cregisteraccount_B <- ave(data$registeraccount_B, data$device, FUN=cumsum)
+```
+
+
+As we use a uniform random assignment, we would expect the number of visitors to be equal.
+Let’s check how many visitors we have in both conditions (N_A and N_B).
+
+Pay attention: our cumulative numbers are calculated per device type. . . is that what we want?
+We need the cumulative numbers per test.
+
+Since it is cumulative numbers, then the last record (date-wise) is the total number of visitor per test.
+The cumulative numbers are calculated per device type and we need the number of participants per test. So, we will need the cumulative numbers for test A for both desktop and mobile, and the same for test B.
+
+row1,column2: number of participants in condition A if we have random assignment
+row2,column2: number of participants in condition B if we have random assignment
+
+Participants if we have random assignment means they have to be split 50%,50%.
+
+```{r ChiSquareTest, echo = TRUE}
+# per desktop 
+data <- data %>% arrange(desc(data$date))
+Nparticipants_A<- head(data$cN_A, n=2)
+Nparticipants_B<- head(data$cN_B, n=2)
+
+# random assignment
+all_participation <- Nparticipants_A[1] + Nparticipants_B[1]
+random_assigned <- all_participation/2
+random_assigned <- as.integer(random_assigned)
+
+
+row1column1 <- Nparticipants_A[1]
+row2column1 <- Nparticipants_B[1]
+row1column2 <- random_assigned
+row2column2 <- random_assigned
+testtable <- cbind(matrix(c(row1column1, row1column2, row2column1, row2column2), nrow=2, ncol=2))
+chisq.test(testtable)
+
+
+# per mobile
+# random assignment
+all_participation <- Nparticipants_A[2] + Nparticipants_B[2]
+random_assigned <- all_participation/2
+random_assigned <- as.integer(random_assigned)
+
+row1column1 <- Nparticipants_A[2]
+row2column1 <- Nparticipants_B[2]
+row1column2 <- random_assigned
+row2column2 <- random_assigned
+testtable <- cbind(matrix(c(row1column1, row1column2, row2column1, row2column2), nrow=2, ncol=2))
+chisq.test(testtable)
+
+#format(chisq.test(testtable), scientific = F, digits =  3)
+
+```
+Since we get a p-Value less than the significance level of 0.05, we reject the null hypothesis and conclude that the two variables are in fact dependent.
+
+
+
+Performing the same test for each day, by calculating the statistical significance per day and see how it changes over time.
+
+
+```{r forEachDay, echo=TRUE}
+
+data <- data %>% arrange(desc(data$date))
+
+data$p_purchases <- NA
+for(i in 1:nrow(data)){
+random_assigned_day <- (data$cpurchases_A[i] + data$cpurchases_B[i])/2
+row1column1 <- data$cpurchases_A[i]
+row2column1 <- data$cpurchases_B[i]
+row1column2 <- random_assigned_day
+row2column2 <- random_assigned_day
+
+
+testtable <- cbind(matrix(c(row1column1, row1column2, row2column1, row2column2), nrow=2, ncol=2))
+data$p_purchases[i] <- chisq.test(testtable)$p.value
+data$random_assigned_day[i] <- random_assigned_day
+}
+
+
+
+ggplot(data, aes(x=date, y=p_purchases, group=device, color=device)) +
+geom_line() + ggtitle("Statistical Significance over Time") +
+theme(axis.text.x = element_text(angle = 90))
+
+# remove scientific notation e
+# data$p_purchases<- format(data$p_purchases, scientific = F, digits = 3)
+```
+# Confidence Intervals
+
+An alternative way of evaluating the test instead of significance testing is to look at the confidence intervals.
+
+we have to calculate the conversion rate and the standard deviation (SD) of this conversion rate, over the cumulative numbers.
+
+```{r ConfidenceIntervals, echo=TRUE}
+
+data$cconversion_A <- data$cpurchases_A/data$cN_A
+data$cconversion_B <- data$cpurchases_B/data$cN_B
+
+data$cSDpurchases_A <- sqrt((data$cconversion_A) * (1 - (data$cconversion_A)) / data$cN_A)
+
+data$cSDpurchases_B <- sqrt((data$cconversion_B ) * (1 - (data$cconversion_B )) / data$cN_B)
+
+
+y <- ((data$cconversion_A) * (1 - (data$cconversion_A)) / data$cN_A)
+
+#  Common values for z* include 1.645 for 90% confidence and 1.96 for 95% confidence.
+# confidence interval for a population proportion
+data$CI <- (data$cconversion_A + 1.960* y)^0.5
+
+
+# prop.test is equivalent to chi-squared test.
+# it returns a p-value and a confidence interval for the difference between the two rates.
+prop.test(testtable, conf.level = .95)
+
+```
+
+
+How do the graphs below relate to the graph you made before with the p-values?
+
+
+```{r ConfidenceIntervalsPlot, echo=TRUE} 
+
+reshapeddata <- reshape(data, timevar="condition",direction="long",
+varying=c("cSDpurchases_A","cSDpurchases_B",
+"cconversion_A", "cconversion_B"), sep="_",
+drop=c("N_A","N_B","purchases_A","purchases_B","registeraccount_A",
+"registeraccount_B","cN_A","cN_B","cpurchases_A",
+"cpurchases_B","cregisteraccount_A","cregisteraccount_B"))
+
+
+#we then melt the data
+ggplot(reshapeddata, aes(x=date, y=cconversion, group=condition, fill=condition,
+color=condition)) + geom_line() + facet_grid(device ~ .) +
+    geom_ribbon(aes(ymin = cconversion - 1.96 * cSDpurchases,
+ymax = cconversion + 1.96 * cSDpurchases)) +
+theme(axis.text.x = element_text(angle = 90))
+
+```
+
+## DIY
+
+1. How are these effects when you ignore the device types? Do you find the same differences if you compare the effects of the condition?
+
+
+```{r DIY, echo=TRUE}
+
+
+# when ignoring the device type, we assume that both desktop and mobile are the same platform. 
+data <- data %>% arrange(desc(data$date))
+Nparticipants_A<- head(data$cN_A, n=2)
+Nparticipants_B<- head(data$cN_B, n=2)
+
+# total participants ignoring the device type.
+Totalparticipants_A <- sum(Nparticipants_A)
+Totalparticipants_B <- sum(Nparticipants_B)
+
+# random assignment
+all_participation <- Totalparticipants_A + Totalparticipants_B
+random_assigned <- all_participation/2
+random_assigned <- as.integer(random_assigned)
+
+
+row1column1 <- Totalparticipants_A
+row2column1 <- Totalparticipants_B
+row1column2 <- random_assigned
+row2column2 <- random_assigned
+testtable_total <- cbind(matrix(c(row1column1, row1column2, row2column1, row2column2), nrow=2, ncol=2))
+chisq.test(testtable_total)
+
+
+#format(chisq.test(testtable_total), scientific = F, digits = 3)
+
+```
+The p.value decrease extremely.
+
+
+2. How does the condition influence the number of accounts registered?
+
+ 
+```{r DIY1, echo=TRUE} 
+
+
+data <- data %>% arrange(desc(data$date))
+
+data$p_registeraccount <- NA
+for(i in 1:nrow(data)){
+random_assigned_day <- (data$cregisteraccount_A[i] + data$cregisteraccount_B[i])/2
+row1column1 <- data$cregisteraccount_A[i]
+row2column1 <- data$cregisteraccount_B[i]
+row1column2 <- random_assigned_day
+row2column2 <- random_assigned_day
+
+
+testtable <- cbind(matrix(c(row1column1, row1column2, row2column1, row2column2), nrow=2, ncol=2))
+data$p_registeraccount[i] <- chisq.test(testtable)$p.value
+data$random_assigned_day[i] <- random_assigned_day
+}
+
+
+
+ggplot(data, aes(x=date, y=p_registeraccount, group=device, color=device)) +
+geom_line() + ggtitle("Statistical Significance over Time") +
+theme(axis.text.x = element_text(angle = 90))
+
+```
+ 
+
+```{r DIY2, echo=TRUE} 
+for(j in 1:nrow(data)){
+data$device[j] <- "Device"
+}
+
+ggplot(data, aes(x=date, y=p_registeraccount, group=device, color=device)) +
+geom_line() + ggtitle("Statistical Significance over Time") +
+theme(axis.text.x = element_text(angle = 90))
+```
+ 
+ 
+ 
+ 
